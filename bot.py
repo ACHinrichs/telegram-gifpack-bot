@@ -9,6 +9,11 @@ import os.path
 import string
 import random
 import time
+from enum import Enum
+
+
+
+
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
@@ -22,8 +27,30 @@ dataFile="data.pkl"
 data = {}
 data["admin_id"] = -1
 data["chat_state"] = {}
+data["next_pack_id"] = 0
+
+gifpacks = {}
+
+
+
+
+
+class States(Enum):
+    NONE=0
+    NEW_PACK_NAME=1
+    NEW_PACK_ADD_GIF=2
+    NEW_PACK_ADD_TEXT=2
+
+class Gif:
+    def __init(self, gif_id, thumb_id, text):
+        self.gif_id=gif_id
+        self.thumb_id=thumb_id
+        self.text=text
+
 
 admin_token=''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+
+
 def save_obj(obj, name ):
     with open(name, 'w+b') as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
@@ -47,22 +74,63 @@ def recieve(bot, update, chat_data):
     if not ("state" in chat_data)  or chat_data["state"]=="none":
         message.reply_text("No command active.\n"+HELPTEXT)
         return
-    
-    if chat_data["state"]=="add GIF":
-        if message.document:
-            if message.document.mime_type=="video/mp4":
-                message.reply_text("Added to your Pack.\n_Send another one to continue, type _/finish_ to save and publish your pack, or type _/cancel_ to abort creation_",parse_mode=ParseMode.MARKDOWN)
-            else:
-                message.reply_text("Please add only GIFs to *GIF*-Packs",parse_mode=ParseMode.MARKDOWN)
-    else:
-        if  chat_data["state"]=="add Description":
-            print()
-            
 
+    if chat_data["state"]==States.NEW_PACK_NAME:
+        if message.text:
+            chat_data["new_pack_name"]=message.text
+            message.reply_text("Ok, please send me the first Gif for your new pack _"+
+                               chat_data["new_pack_name"]+"_!",parse_mode=ParseMode.MARKDOWN)
+            chat_data["state"]=States.NEW_PACK_ADD_GIF
+        else:
+            message.reply_text("Error, please add a Name first",
+                               parse_mode=ParseMode.MARKDOWN)
+    else:   
+        if chat_data["state"]==States.NEW_PACK_ADD_GIF:
+            if message.document:
+                if message.document.mime_type=="video/mp4":
+                    chat_data["new_gif"]=message.document.file_id
+                    chat_data["new_thumb"]=message.document.thumb.file_id
+                    message.reply_text("Marked to be appended to your Pack.\n"+
+                                       "Send a description to add this gif to your pack\n"+
+                                       "_Send another one to overwrite this one, "+
+                                       "type _/finish_ to save and publish "+
+                                       "your pack, or type _/cancel_ to abort creation_",
+                                       parse_mode=ParseMode.MARKDOWN)
+                    chat_data["state"]=States.NEW_PACK_ADD_TEXT
+                else:
+                    message.reply_text("Please add only GIFs to *GIF*-Packs",
+                                       parse_mode=ParseMode.MARKDOWN)
+            else:
+                if chat_data["state"]==States.NEW_PACK_ADD_TEXT:
+                    chat_data["new_pack"].append({"gif":chat_data["new_gif"],
+                                                  "thumb":chat_data["new_thumb"],
+                                                  "text":message.text})
+                    message.reply_text("Appended to your Pack.\n"+
+                                       "_Send another one to continue, "+
+                                       "type _/finish_ to save and publish "+
+                                       "your pack, or type _/cancel_ to abort creation_",
+                                       parse_mode=ParseMode.MARKDOWN)
+                    chat_data["state"]=States.NEW_PACK_ADD_GIF
+                        
 def newPack(bot, update, chat_data):
-    if not ("state" in chat_data) or chat_data["state"]=="none":
-        chat_data["state"]="add GIFs"
-        
+    if not ("state" in chat_data) or chat_data["state"]==States.NONE:
+        chat_data["state"]=States.NEW_PACK_NAME
+        chat_data["new_pack"]=[]
+        update.message.reply_text("Ok, we will create a new Gif-Pack.\n\n"+
+                           "Please choose a name for your new pack\n\n"+
+                           "_Type _/cancel_ to abort creation_",
+                           parse_mode=ParseMode.MARKDOWN)
+
+def aport(bot, update, job_queue):
+    chat_data["state"]=States.NONE
+    chat_data["new_pack"]=None
+
+
+def finish(bot, update, job_queue):
+    chat_data["state"]=States.NONE
+    chat_data["new_pack"]=None
+
+    
 def admin(bot, update, job_queue):
     global data
     global admin_token
@@ -70,14 +138,16 @@ def admin(bot, update, job_queue):
     if data["admin_id"]==-1:
         if update.message.text==("admin verify "+admin_token):
             data["admin_id"]=update.message.chat_id
-            update.message.reply_text("Success, you are now `ADMIN`\n\nI am at your command.",parse_mode=ParseMode.MARKDOWN)
+            update.message.reply_text("Success, you are now `ADMIN`\n\nI am at your command.",
+                                      parse_mode=ParseMode.MARKDOWN)
             return
     if data["admin_id"]==chat_id:
         update.message.reply_text("Hello `ADMIN`!",parse_mode=ParseMode.MARKDOWN)
     else:
-        update.message.reply_text("Nice try but you are not `ADMIN`!\nThis incident will be reportet!",parse_mode=ParseMode.MARKDOWN)
+        update.message.reply_text("Nice try but you are not `ADMIN`!\n\n"+
+                                  "This incident will be reportet!",parse_mode=ParseMode.MARKDOWN)
 
-def test(bot, update):
+def test(bot, update,chat_data):
     
     keyboard = [[InlineKeyboardButton("Option 1", callback_data='1'),
                  InlineKeyboardButton("Option 2", callback_data='2')],
@@ -107,6 +177,12 @@ def main():
     
     dp.add_handler(CommandHandler("newPack",
                                   newPack,
+                                  pass_chat_data=True))
+    dp.add_handler(CommandHandler("cancel",
+                                  abort,
+                                  pass_chat_data=True))
+    dp.add_handler(CommandHandler("finish",
+                                  finish,
                                   pass_chat_data=True))
     dp.add_handler(MessageHandler(Filters.all,
                                   recieve,
