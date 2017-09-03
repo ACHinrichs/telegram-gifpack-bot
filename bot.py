@@ -10,7 +10,7 @@ import string
 import random
 import time
 from enum import Enum
-
+import traceback
 
 
 
@@ -29,13 +29,14 @@ Please try again Later.
 If the error occurs often, please add a new Bugreport at the [Issuetracker](https://github.com/ACHinrichs/telegram-gifpack-bot/issues)
 '''
 
+
+PACK_PATH="packs"
 dataFile="data.pkl"
 data = {}
 data["admin_id"] = -1
 data["chat_state"] = {}
 data["next_pack_id"] = 0
 
-gifpacks = {}
 
 
 admin_token=''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
@@ -49,8 +50,7 @@ class InvalidIDException(Exception):
     """
 
     def __init__(self, expression, message):
-        self.expression = expression
-        self.message = message
+        pass
 
 class States(Enum):
     NONE=0
@@ -88,7 +88,10 @@ class GifPack:
         self.name=name
 
 
+
 class GifPackCollection:
+    gif_packs=None
+    pack_path="."
 
     # pack_path: String the path, where to store the packs WITHOUT following /
     def __init__(self, pack_path):
@@ -97,25 +100,27 @@ class GifPackCollection:
 
 
     def add_pack(self, gif_pack):
-        if not (gif_packs[gif_pack.pack_id]):
+        if not gif_pack.pack_id in self.gif_packs:
             self.gif_packs[gif_pack.pack_id]=gif_pack
-            save_obj(self.gif_pack,self.pack_path+"/"+gif_pack.pack_id+".pkl")
+            save_obj(gif_pack,self.pack_path+"/"+str(gif_pack.pack_id)+".pkl")
         else:
             raise InvalidIDException("GifPackCollection.add_pack", "pack-id "+
-                                     gif_pack.pack_id+" is already taken")
+                                     str(gif_pack.pack_id)+" is already taken")
 
     def get_pack(self, pack_id):
-        if (self.gif_packs[pack_id]):
+        if pack_id in self.gif_packs:
             return self.gif_packs[pack_id]
         else:
             try:
-                pack=load_obj(self.pack_path+"/"+pack_id+".pkl")
+                pack=load_obj(self.pack_path+"/"+str(pack_id)+".pkl")
                 self.gif_packs[pack_id]=pack
                 return pack
             except Exception as e:
                 alert(e)
                 return None
-                
+
+gifpacks=GifPackCollection(PACK_PATH)
+            
 def save_obj(obj, name ):
     with open(name, 'w+b') as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
@@ -197,15 +202,18 @@ def finish(bot, update, chat_data):
     chat_data["new_pack"].set_id(pack_id)
 
     try:
-        gifpacks[pack_id]=chat_data["new_pack"]
+        gifpacks.add_pack(chat_data["new_pack"])
+        update.message.reply_text("Pack successfully saved!",
+                                  parse_mode=ParseMode.MARKDOWN)
         chat_data["new_pack"]=None
         saveData()
-        update.message.reply_text("Pack successfully saved! Aborted",
-                                  parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         alert(e)
+        print("Here was an error")
         update.message.reply_text(ERROR_MSG,
                                   parse_mode=ParseMode.MARKDOWN)
+        traceback.print_tb(e.__traceback__)
+
     
 def admin(bot, update, chat_data):
     global data
